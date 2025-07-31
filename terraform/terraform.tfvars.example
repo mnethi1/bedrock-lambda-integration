@@ -1,0 +1,13 @@
+aws_region = "us-east-1"
+project_name = "bedrock-claude-integration"
+lambda_timeout = 30
+lambda_memory_size = 512
+log_retention_days = 14
+log_level = "INFO"
+
+tags = {
+  Project     = "bedrock-claude-integration"
+  Environment = "dev"
+  ManagedBy   = "terraform"
+  Owner       = "your-team"
+}

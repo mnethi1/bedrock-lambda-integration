@@ -1,0 +1,7 @@
+{
+  "body": {
+    "prompt": "Explain AWS Lambda in simple terms",
+    "max_tokens": 500,
+    "temperature": 0.7
+  }
+}
