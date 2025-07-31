@@ -14,3 +14,9 @@ This project provides a complete solution for integrating AWS Lambda with AWS Be
 ## Setup Instructions
 
 ### 1. Clone and Setup
+
+
+AWS CLI:
+
+aws lambda invoke --function-name bedrock-claude-integration-bedrock-lambda --payload file://lambda/test_payload.json --cli-binary-format raw-in-base64-out response.json
+
