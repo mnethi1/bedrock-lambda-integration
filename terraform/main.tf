@@ -1,5 +1,6 @@
 terraform {
   required_version = ">= 1.0"
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -16,10 +17,17 @@ provider "aws" {
   region = var.aws_region
 }
 
-# Data source for current AWS account
+################################################################################
+# Data Source
+################################################################################
+
 data "aws_caller_identity" "current" {}
 
-# IAM role for Lambda function
+################################################################################
+# IAM Role and Policies for Lambda
+################################################################################
+
+# Lambda Execution Role
 resource "aws_iam_role" "lambda_role" {
   name = "${var.project_name}-lambda-role"
 
@@ -27,8 +35,8 @@ resource "aws_iam_role" "lambda_role" {
     Version = "2012-10-17"
     Statement = [
       {
-        Action = "sts:AssumeRole"
         Effect = "Allow"
+        Action = "sts:AssumeRole"
         Principal = {
           Service = "lambda.amazonaws.com"
         }
@@ -39,7 +47,7 @@ resource "aws_iam_role" "lambda_role" {
   tags = var.tags
 }
 
-# IAM policy for Lambda to access Bedrock
+# Custom Policy for Accessing Bedrock
 resource "aws_iam_policy" "lambda_bedrock_policy" {
   name        = "${var.project_name}-lambda-bedrock-policy"
   description = "IAM policy for Lambda to access Bedrock"
@@ -48,8 +56,8 @@ resource "aws_iam_policy" "lambda_bedrock_policy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = [
+        Effect   = "Allow"
+        Action   = [
           "bedrock:InvokeModel",
           "bedrock:InvokeModelWithResponseStream"
         ]
@@ -58,8 +66,8 @@ resource "aws_iam_policy" "lambda_bedrock_policy" {
         ]
       },
       {
-        Effect = "Allow"
-        Action = [
+        Effect   = "Allow"
+        Action   = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents"
@@ -70,19 +78,22 @@ resource "aws_iam_policy" "lambda_bedrock_policy" {
   })
 }
 
-# Attach policy to role
+# Attach Bedrock Policy to Lambda Role
 resource "aws_iam_role_policy_attachment" "lambda_bedrock_policy_attachment" {
   role       = aws_iam_role.lambda_role.name
   policy_arn = aws_iam_policy.lambda_bedrock_policy.arn
 }
 
-# Attach basic execution role
+# Attach AWS Managed Lambda Basic Execution Role
 resource "aws_iam_role_policy_attachment" "lambda_basic_execution" {
   role       = aws_iam_role.lambda_role.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
-# Create deployment package
+################################################################################
+# Lambda Deployment Package
+################################################################################
+
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_dir  = "${path.module}/../lambda"
@@ -90,23 +101,29 @@ data "archive_file" "lambda_zip" {
   excludes    = ["test_payload.json"]
 }
 
-# CloudWatch Log Group
+################################################################################
+# Logging
+################################################################################
+
 resource "aws_cloudwatch_log_group" "lambda_logs" {
   name              = "/aws/lambda/${var.project_name}-bedrock-lambda"
   retention_in_days = var.log_retention_days
   tags              = var.tags
 }
 
-# Lambda function
+################################################################################
+# Lambda Function
+################################################################################
+
 resource "aws_lambda_function" "bedrock_lambda" {
   filename         = data.archive_file.lambda_zip.output_path
   function_name    = "${var.project_name}-bedrock-lambda"
-  role            = aws_iam_role.lambda_role.arn
-  handler         = "handler.lambda_handler"
+  role             = aws_iam_role.lambda_role.arn
+  handler          = "handler.lambda_handler"
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  runtime         = "python3.11"
-  timeout         = var.lambda_timeout
-  memory_size     = var.lambda_memory_size
+  runtime          = "python3.11"
+  timeout          = var.lambda_timeout
+  memory_size      = var.lambda_memory_size
 
   environment {
     variables = {
@@ -116,13 +133,16 @@ resource "aws_lambda_function" "bedrock_lambda" {
 
   depends_on = [
     aws_iam_role_policy_attachment.lambda_bedrock_policy_attachment,
-    aws_cloudwatch_log_group.lambda_logs,
+    aws_cloudwatch_log_group.lambda_logs
   ]
 
   tags = var.tags
 }
 
-# Lambda function URL (for direct invocation)
+################################################################################
+# Lambda Function URL (Direct Invocation)
+################################################################################
+
 resource "aws_lambda_function_url" "bedrock_lambda_url" {
   function_name      = aws_lambda_function.bedrock_lambda.function_name
   authorization_type = "NONE"
@@ -133,6 +153,6 @@ resource "aws_lambda_function_url" "bedrock_lambda_url" {
     allow_methods     = ["POST"]
     allow_headers     = ["date", "keep-alive", "content-type"]
     expose_headers    = ["date", "keep-alive"]
-    max_age          = 86400
+    max_age           = 86400
   }
 }
