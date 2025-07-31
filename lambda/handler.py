@@ -1,43 +1,51 @@
 import json
-import boto3
 import logging
+import os
 from typing import Dict, Any
+
+import boto3
 
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Initialize Bedrock client
-bedrock_client = boto3.client('bedrock-runtime')
+bedrock_runtime = boto3.client('bedrock-runtime', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
 
-def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
+def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
-    Lambda handler for AWS Bedrock Claude Haiku integration
+    Lambda handler for Bedrock integration
     """
     try:
-        # Parse the input event
-        body = event.get('body', {})
-        if isinstance(body, str):
-            body = json.loads(body)
+        # Parse the request body
+        if 'body' in event:
+            body = json.loads(event['body']) if isinstance(event['body'], str) else event['body']
+        else:
+            body = event
         
-        # Extract parameters
+        # Extract prompt from request
         prompt = body.get('prompt', '')
-        max_tokens = body.get('max_tokens', 1000)
-        temperature = body.get('temperature', 0.7)
-        
         if not prompt:
             return {
                 'statusCode': 400,
+                'headers': {
+                    'Content-Type': 'application/json',
+                    'Access-Control-Allow-Origin': '*',
+                    'Access-Control-Allow-Headers': 'Content-Type',
+                    'Access-Control-Allow-Methods': 'POST, OPTIONS'
+                },
                 'body': json.dumps({
-                    'error': 'Prompt is required'
+                    'error': 'Missing prompt in request body'
                 })
             }
         
-        # Prepare the request for Claude Haiku
+        # Get model ID from environment variable
+        model_id = os.environ.get('BEDROCK_MODEL_ID', 'anthropic.claude-3-sonnet-20240229-v1:0')
+        
+        # Prepare the request for Claude
         request_body = {
             "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": max_tokens,
-            "temperature": temperature,
+            "max_tokens": body.get('max_tokens', 1000),
             "messages": [
                 {
                     "role": "user",
@@ -46,50 +54,72 @@ def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
             ]
         }
         
-        # Call Bedrock with Claude Haiku model
-        response = bedrock_client.invoke_model(
-            modelId='anthropic.claude-3-haiku-20240307-v1:0',
+        logger.info("Invoking Bedrock model: %s", model_id)
+        
+        # Invoke Bedrock model
+        response = bedrock_runtime.invoke_model(
+            modelId=model_id,
+            body=json.dumps(request_body),
             contentType='application/json',
-            accept='application/json',
-            body=json.dumps(request_body)
+            accept='application/json'
         )
         
-        # Parse the response
+        # Parse response
         response_body = json.loads(response['body'].read())
         
-        # Extract the generated text
+        # Extract generated text
         generated_text = response_body['content'][0]['text']
-        
-        logger.info(f"Successfully generated response for prompt: {prompt[:50]}...")
         
         return {
             'statusCode': 200,
             'headers': {
                 'Content-Type': 'application/json',
-                'Access-Control-Allow-Origin': '*'
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Methods': 'POST, OPTIONS'
             },
             'body': json.dumps({
                 'generated_text': generated_text,
-                'model': 'claude-3-haiku',
-                'tokens_used': response_body.get('usage', {}).get('output_tokens', 0)
+                'model_id': model_id,
+                'usage': response_body.get('usage', {})
             })
         }
         
-    except json.JSONDecodeError as e:
-        logger.error(f"JSON decode error: {str(e)}")
+    except json.JSONDecodeError as json_error:
+        logger.error("Invalid JSON in request body: %s", str(json_error))
         return {
             'statusCode': 400,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
             'body': json.dumps({
                 'error': 'Invalid JSON in request body'
             })
         }
         
-    except Exception as e:
-        logger.error(f"Error processing request: {str(e)}")
+    except boto3.exceptions.Boto3Error as aws_error:
+        logger.error("AWS service error: %s", str(aws_error))
         return {
             'statusCode': 500,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
             'body': json.dumps({
-                'error': 'Internal server error',
-                'message': str(e)
+                'error': f'AWS service error: {str(aws_error)}'
+            })
+        }
+        
+    except Exception as general_error:
+        logger.error("Unexpected error processing request: %s", str(general_error))
+        return {
+            'statusCode': 500,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
+            'body': json.dumps({
+                'error': f'Internal server error: {str(general_error)}'
             })
         }
